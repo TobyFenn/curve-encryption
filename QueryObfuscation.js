@@ -9,10 +9,10 @@ const dbName = 'fable';
 const collectionName = 'urlMappings';
 
 // Initialize MongoDB client
-const client = new MongoClient(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
+const client = new MongoClient(mongoUri);
 
 // OpenAI setup
-const OPENAI_API_KEY = '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';
+const OPENAI_API_KEY = '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';
 const openai = new OpenAI({
     apiKey: OPENAI_API_KEY
 });
@@ -50,24 +50,32 @@ function encrypt(url) {
     let charCode = 97; // ASCII code for 'a'
 
     parts.forEach(part => {
-        const char = '|' + String.fromCharCode(charCode) + '|'; // Delimiter added
-        map[char] = part;
-        encrypted = encrypted.replace(new RegExp(part, 'g'), char);
-        charCode++;
+        if (!Object.values(map).includes(part)) { // Check if part is not already in the map
+            const char = '|' + String.fromCharCode(charCode) + '|'; // Delimiter added
+            map[char] = part;
+
+            // Replace only the first occurrence of 'part'
+            encrypted = encrypted.replace(part, () => {
+                charCode++;
+                return char;
+            });
+        }
     });
 
     return { encrypted, map };
 }
 
+
+
+
 // Helper function to decrypt the URL
 function decrypt(encrypted, map) {
     console.log('Starting decryption process...');
     console.log(`Encrypted URL: ${encrypted}`);
-    console.log('Decryption Map:', map);
+    // console.log('Decryption Map:', map);
 
     let decrypted = encrypted;
     for (const key in map) {
-        // Use the key directly without extra escaping
         console.log(`Replacing all occurrences of '${key}' with '${map[key]}'`);
         decrypted = decrypted.replace(new RegExp(key, 'g'), map[key]);
         console.log(`Current state of URL: ${decrypted}`);
@@ -78,12 +86,17 @@ function decrypt(encrypted, map) {
 }
 
 
+// ...
+
 // Function to transform the encrypted URL using OpenAI API
-async function transformUrl(encryptedUrl) {
+async function transformUrl(encryptedUrl, existingMappings) {
     try {
         const messages = [
             { "role": "system", "content": "Your task is to analyze the URL transformation patterns from the given examples and apply the same pattern to transform the new URL. Respond with the transformed URL only." }
         ];
+
+        console.log(`What we're sending to API: ${encryptedUrl}`);
+
 
         // Add a few examples from existing mappings
         existingMappings.slice(0, 3).forEach(mapping => {
@@ -127,14 +140,18 @@ async function main() {
         console.log(`Encrypted URL: ${encrypted}`);
         console.log('Encryption Map:', map);
 
-        // Third: Transform the encrypted URL using OpenAI API
+        // Third: Check for existing mappings
         const existingMappings = await getExistingMappingsForRoot(url_original, collection);
 
         if (existingMappings.length === 0) {
-            console.log('No mappings to pass to OpenAI. Proceeding with an empty mapping list.');
+            console.log('No mappings to pass to OpenAI. Ending process.');
+            rl.close();
+            return; // Exit the function early
         }
 
-        const transformedEncryptedUrl = await transformUrl(encrypted, existingMappings);        if (!transformedEncryptedUrl) {
+        // Transform the encrypted URL using OpenAI API
+        const transformedEncryptedUrl = await transformUrl(encrypted, existingMappings);
+        if (!transformedEncryptedUrl) {
             console.error('Failed to transform URL.');
             rl.close();
             return;
