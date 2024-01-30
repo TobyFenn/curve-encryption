@@ -1,22 +1,47 @@
 const readline = require('readline');
 const axios = require('axios');
+const { MongoClient } = require('mongodb');
 const OpenAI = require('openai');
 
-// Store the OpenAI API key
-const OPENAI_API_KEY = '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';
+// MongoDB setup
+const mongoUri = 'mongodb+srv://tfenner:curve@fable.kclnqum.mongodb.net/';
+const dbName = 'fable';
+const collectionName = 'urlMappings';
 
+// Initialize MongoDB client
+const client = new MongoClient(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true });
+
+// OpenAI setup
+const OPENAI_API_KEY = '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';
 const openai = new OpenAI({
     apiKey: OPENAI_API_KEY
 });
 
-// Store existing mappings (replace with actual mappings as needed)
-const existingMappings = [
-    { old: 'a://b.c/d/e/f/f848/h_i.j', new: 'a://b.c/d/e/f/f848/f848.i' },
-    { old: 'a://b.c/d/e/f/f739/h_i.j', new: 'a://b.c/d/e/f/f739/f739.i' },
-    { old: 'a://b.c/d/e/f/f202/h_i.j', new: 'a://b.c/d/e/f/f202/f202.i' },
-    { old: 'a://b.c/d/e/f/f443/h_i.j', new: 'a://b.c/d/e/f/f443/f443.i' },
-    { old: 'a://b.c/d/e/f/f823/h_i.j', new: 'a://b.c/d/e/f/f823/f823.i' },
-];
+// Function to connect to the MongoDB database
+async function connectToDatabase() {
+    try {
+        await client.connect();
+        console.log("Connected successfully to MongoDB");
+        return client.db(dbName).collection(collectionName);
+    } catch (error) {
+        console.error("Failed to connect to MongoDB", error);
+        process.exit(1);
+    }
+}
+
+// Function to get existing mappings from the database based on the URL root
+async function getExistingMappingsForRoot(url, collection) {
+    const root = new URL(url).origin;
+    const mappings = await collection.findOne({ root: root });
+
+    if (!mappings) {
+        console.log(`No existing mappings found for root: ${root}`);
+        return [];
+    }
+
+    console.log(`Found existing mappings for root: ${root}`);
+    return mappings.urlPairs;
+}
 
 function encrypt(url) {
     const parts = url.match(/[a-z]+|\d+/ig);
@@ -86,6 +111,8 @@ async function transformUrl(encryptedUrl) {
 
 // Main function to run the URL shortener
 async function main() {
+    const collection = await connectToDatabase();
+    
     const rl = readline.createInterface({
         input: process.stdin,
         output: process.stdout
@@ -101,8 +128,13 @@ async function main() {
         console.log('Encryption Map:', map);
 
         // Third: Transform the encrypted URL using OpenAI API
-        const transformedEncryptedUrl = await transformUrl(encrypted, existingMappings);
-        if (!transformedEncryptedUrl) {
+        const existingMappings = await getExistingMappingsForRoot(url_original, collection);
+
+        if (existingMappings.length === 0) {
+            console.log('No mappings to pass to OpenAI. Proceeding with an empty mapping list.');
+        }
+
+        const transformedEncryptedUrl = await transformUrl(encrypted, existingMappings);        if (!transformedEncryptedUrl) {
             console.error('Failed to transform URL.');
             rl.close();
             return;
