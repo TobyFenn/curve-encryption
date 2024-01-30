@@ -12,7 +12,7 @@ const collectionName = 'urlMappings';
 const client = new MongoClient(mongoUri);
 
 // OpenAI setup
-const OPENAI_API_KEY = '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';
+const OPENAI_API_KEY = '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';
 const openai = new OpenAI({
     apiKey: OPENAI_API_KEY
 });
@@ -39,7 +39,9 @@ async function getExistingMappingsForRoot(url, collection) {
         return [];
     }
 
-    console.log(`Found existing mappings for root: ${root}`);
+    console.log(`Found existing mappings for root ${root}`);
+    console.log(mappings.urlPairs);
+
     return mappings.urlPairs;
 }
 
@@ -67,18 +69,21 @@ function encrypt(url) {
 
 
 
-
+// right now it only does the first, i want all?
 // Helper function to decrypt the URL
 function decrypt(encrypted, map) {
     console.log('Starting decryption process...');
-    console.log(`Encrypted URL: ${encrypted}`);
-    // console.log('Decryption Map:', map);
+    // console.log(`Encrypted URL: ${encrypted}`);
 
     let decrypted = encrypted;
     for (const key in map) {
-        console.log(`Replacing all occurrences of '${key}' with '${map[key]}'`);
-        decrypted = decrypted.replace(new RegExp(key, 'g'), map[key]);
-        console.log(`Current state of URL: ${decrypted}`);
+        let keyPosition = decrypted.indexOf(key);
+        while (keyPosition !== -1) {
+            // console.log(`Found the key '${key}' at position ${keyPosition}`);
+            decrypted = decrypted.replace(key, map[key]);
+            // console.log(`Current state of URL: ${decrypted}`);
+            keyPosition = decrypted.indexOf(key); // Update key position for the next iteration
+        }
     }
 
     console.log(`Decrypted URL: ${decrypted}`);
@@ -86,41 +91,50 @@ function decrypt(encrypted, map) {
 }
 
 
-// ...
 
-// Function to transform the encrypted URL using OpenAI API
+
 async function transformUrl(encryptedUrl, existingMappings) {
     try {
+        // Construct the instructions and examples for the API
+        const systemMessage = "Examine the following mappings for their transformation patterns and predict the transformation of the new URL based on these patterns. Respond with the transformed URL only (do not include the original. do not include text.).";
+        const exampleMappings = existingMappings.slice(0, 3).map(mapping => 
+            `${mapping.old} -> ${mapping.new}`
+        ).join('\n');
+        const query = `Based on this pattern, please predict the transformation of the following URL, and respond only with the transformed URL and nothing else (do not include the original. do not include text):\n${encryptedUrl} -> ?`;
+
+        // console.log('Constructed Query for OpenAI:');
+        // console.log(`${systemMessage}\n\n${exampleMappings}\n\n${query}`);
+
+        // Prepare messages for the API call
         const messages = [
-            { "role": "system", "content": "Your task is to analyze the URL transformation patterns from the given examples and apply the same pattern to transform the new URL. Respond with the transformed URL only." }
+            { "role": "system", "content": systemMessage },
+            { "role": "user", "content": exampleMappings },
+            { "role": "user", "content": query }
         ];
 
-        console.log(`What we're sending to API: ${encryptedUrl}`);
-
-
-        // Add a few examples from existing mappings
-        existingMappings.slice(0, 3).forEach(mapping => {
-            messages.push(
-                { "role": "user", "content": `Transform this URL: ${mapping.old}` },
-                { "role": "assistant", "content": `${mapping.new}` }
-            );
-        });
-
-        // Add the new URL to transform
-        messages.push({ "role": "user", "content": `Transform this URL: ${encryptedUrl}` });
-
+        // Make the API call
         const completion = await openai.chat.completions.create({
             model: "gpt-3.5-turbo",
             messages: messages
         });
 
-        const lastMessage = completion.choices[0].message;
-        return lastMessage ? lastMessage.content : null;
+        // console.log('API Response:');
+        // console.log(JSON.stringify(completion, null, 2));
+
+        const transformedUrl = completion.choices[0].message.content.trim();
+        console.log(`Encrypted URL: ${transformedUrl}`);
+
+        return transformedUrl;
     } catch (error) {
         console.error('Error calling OpenAI API:', error);
+        console.log('Error Details:');
+        console.log(error);
         return null;
     }
 }
+
+
+
 
 // Main function to run the URL shortener
 async function main() {
@@ -133,12 +147,12 @@ async function main() {
 
     // First: Get URL from user
     rl.question('Please paste in a URL: ', async (url_original) => {
-        console.log(`Original URL: ${url_original}`);
+        // console.log(`Original URL: ${url_original}`);
 
         // Second: Encrypt the URL
         const { encrypted, map } = encrypt(url_original);
-        console.log(`Encrypted URL: ${encrypted}`);
-        console.log('Encryption Map:', map);
+        // console.log(`Encrypted URL: ${encrypted}`);
+        // console.log('Encryption Map:', map);
 
         // Third: Check for existing mappings
         const existingMappings = await getExistingMappingsForRoot(url_original, collection);
@@ -156,11 +170,15 @@ async function main() {
             rl.close();
             return;
         }
-        console.log(`Transformed Encrypted URL: ${transformedEncryptedUrl}`);
+        
+        // console.log(`Transformed Encrypted URL: ${transformedEncryptedUrl}`);
 
         // Fourth: decrypt the transformed URL
         const transformedUrl = decrypt(transformedEncryptedUrl, map);
-        console.log(`Transformed URL: ${transformedUrl}`);
+        console.log(``);
+        console.log(`*********************`);
+        console.log(`original URL: ${url_original}`);
+        console.log(`transformed URL: ${transformedUrl}`);
 
         rl.close();
     });
