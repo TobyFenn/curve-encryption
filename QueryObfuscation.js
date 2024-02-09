@@ -50,9 +50,9 @@ async function getExistingMappingsForRoot(url) {
 }
 
 
-function encrypt(url) {
+function obfuscate(url) {
     const parts = url.match(/[a-z]+|\d+/ig);
-    let encrypted = url;
+    let obfuscated = url;
     const map = {};
     let charCode = 97; // ASCII code for 'a'
 
@@ -62,25 +62,25 @@ function encrypt(url) {
             map[char] = part;
 
             // Replace only the first occurrence of 'part'
-            encrypted = encrypted.replace(part, () => {
+            obfuscated = obfuscated.replace(part, () => {
                 charCode++;
                 return char;
             });
         }
     });
 
-    return { encrypted, map };
+    return { obfuscated, map };
 }
 
 
 
 // right now it only does the first, i want all?
 // Helper function to decrypt the URL
-function decrypt(encrypted, map) {
+function decrypt(obfuscated, map) {
     console.log('Starting decryption process...');
-    // console.log(`Encrypted URL: ${encrypted}`);
+    // console.log(`obfuscated URL: ${obfuscated}`);
 
-    let decrypted = encrypted;
+    let decrypted = obfuscated;
     for (const key in map) {
         let keyPosition = decrypted.indexOf(key);
         while (keyPosition !== -1) {
@@ -96,15 +96,13 @@ function decrypt(encrypted, map) {
 }
 
 
-
-
-async function transformUrl(encryptedUrl, existingMappings) {
+async function transformUrl(obfuscatedUrl, existingMappings) {
     try {
         const systemMessage = "Examine the following mappings for their transformation patterns and predict the transformation of the new URL based on these patterns. Respond with the transformed URL only (do not include the original. do not include text.).";
         const exampleMappings = existingMappings.slice(0, 3).map(mapping => 
             `${mapping.old} -> ${mapping.new}`
         ).join('\n');
-        const query = `Based on this pattern, please predict the transformation of the following URL, and respond only with the transformed URL and nothing else (do not include the original. do not include text):\n${encryptedUrl} -> ?`;
+        const query = `Based on this pattern, please predict the transformation of the following URL, and respond only with the transformed URL and nothing else (do not include the original. do not include text):\n${obfuscatedUrl} -> ?`;
 
         const messages = [
             { "role": "system", "content": systemMessage },
@@ -139,7 +137,7 @@ async function main() {
     });
 
     rl.question('Please paste in a URL: ', async (url_original) => {
-        const { encrypted, map } = encrypt(url_original);
+        const { obfuscated, map } = obfuscate(url_original);
         const existingMappings = await getExistingMappingsForRoot(url_original);
 
         if (existingMappings.length === 0) {
@@ -148,14 +146,14 @@ async function main() {
             return;
         }
 
-        const transformedEncryptedUrl = await transformUrl(encrypted, existingMappings);
-        if (!transformedEncryptedUrl) {
+        const transformedobfuscatedUrl = await transformUrl(obfuscated, existingMappings);
+        if (!transformedobfuscatedUrl) {
             console.error('Failed to transform URL.');
             rl.close();
             return;
         }
 
-        const transformedUrl = decrypt(transformedEncryptedUrl, map);
+        const transformedUrl = decrypt(transformedobfuscatedUrl, map);
         console.log(`*******************`);
 
         console.log(``);
