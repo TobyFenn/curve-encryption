@@ -50,31 +50,36 @@ async function getExistingMappingsForRoot(url) {
 }
 
 function obfuscateViaPair(url1, url2) {
-    // Check if either URL is undefined or empty
     if (!url1 || !url2) {
         console.error('One or both URLs not provided for obfuscation');
         return { obfuscated1: null, obfuscated2: null, map: {} };
     }
 
-    // Extract parts from both URLs, treating underscores as delimiters
-    const regex = /[a-z\d]+/ig; // Match sequences of letters or digits
-    const parts1 = url1.split(/[_\/\.\?&=]+/).flatMap(part => part.match(regex) || []);
-    const parts2 = url2.split(/[_\/\.\?&=]+/).flatMap(part => part.match(regex) || []);
-
-    // Combine and deduplicate parts from both URLs
-    const combinedParts = Array.from(new Set([...parts1, ...parts2]));
-
+    // Pre-process URLs to replace protocols
     let obfuscated1 = url1;
     let obfuscated2 = url2;
-    const map = {};
-    let charCode = 97; // ASCII code for 'a'
+    const protocolMap = {};
+    const protocols = ['https', 'http']; // Add more protocols if needed
+    protocols.forEach(protocol => {
+        if (url1.startsWith(protocol + "://")) {
+            protocolMap[protocol] = 'a'; // Assuming 'a' is the starting char for mapping
+            obfuscated1 = obfuscated1.replace(protocol + "://", 'a://');
+            obfuscated2 = obfuscated2.replace(protocol + "://", 'a://');
+        }
+    });
+
+    const regex = /[a-z\d]+/ig;
+    const parts1 = url1.split(/[_\/\.\?&=]+/).flatMap(part => part.match(regex) || []);
+    const parts2 = url2.split(/[_\/\.\?&=]+/).flatMap(part => part.match(regex) || []);
+    const combinedParts = Array.from(new Set([...parts1, ...parts2]));
+
+    const map = { ...protocolMap };
+    let charCode = 'a'.charCodeAt(0); // Start from 'b' if 'a' is used for protocols
 
     combinedParts.forEach(part => {
         if (!Object.values(map).includes(part)) {
-            const char = String.fromCharCode(charCode);
+            const char = '|' + String.fromCharCode(charCode) + '|'; // Delimiter added
             map[char] = part;
-
-            // Define a pattern for matching the part as a whole word within the URL context
             const partPattern = part.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, '\\$1');
             const regexPattern = new RegExp(`(?<=[_\/\.\?&=]|^)(${partPattern})(?=[_\/\.\?&=]|$)`, 'g');
 
@@ -85,9 +90,17 @@ function obfuscateViaPair(url1, url2) {
         }
     });
 
+    // Post-process to reapply protocol obfuscation if necessary
+    // This step may be adjusted based on how protocols are handled in initial obfuscation
+    protocols.forEach(protocol => {
+        if (protocolMap[protocol]) {
+            obfuscated1 = obfuscated1.replace('a://', protocolMap[protocol] + '://');
+            obfuscated2 = obfuscated2.replace('a://', protocolMap[protocol] + '://');
+        }
+    });
+
     return { obfuscated1, obfuscated2, map };
 }
-
 
 
 
@@ -103,6 +116,7 @@ function obfuscate(url) {
     let charCode = 97; // ASCII code for 'a'
 
     parts.forEach(part => {
+        console.error('part is ', part);
         if (!Object.values(map).includes(part)) { // Check if part is not already in the map
             const char = '|' + String.fromCharCode(charCode) + '|'; // Delimiter added
             map[char] = part;
@@ -122,7 +136,10 @@ function obfuscateExistingMappings(existingMappings) {
     const obfuscatedExistingMappings = [];
 
     for (let i = 0; i < existingMappings.length; i++) {
-        console.error('num of mappings is', existingMappings.length);
+        console.error('obfuscating mapping', i + 1, 'of', existingMappings.length);
+        console.error('from ', existingMappings[i]);
+
+
 
         const { old: oldMapping, new: newMapping } = existingMappings[i];
         
@@ -131,6 +148,8 @@ function obfuscateExistingMappings(existingMappings) {
 
         // Add the result to the obfuscatedExistingMappings array
         obfuscatedExistingMappings.push({ old: obfuscatedOld, new: obfuscatedNew, map });
+        console.error('to ', obfuscatedOld, obfuscatedNew);
+
     }
 
     return obfuscatedExistingMappings;
@@ -141,14 +160,18 @@ function obfuscateExistingMappings(existingMappings) {
 // right now it only does the first, i want all?
 // Helper function to deobfuscate the URL
 function deobfuscate(obfuscated, map) {
-    console.log('Starting deobfuscateion process...');
+    console.log('Starting deobfuscation process...');
+
+    console.log(map);
+
     // console.log(`obfuscated URL: ${obfuscated}`);
 
     let deobfuscated = obfuscated;
     for (const key in map) {
+        console.log(`Replacing ${key} with ${map[key]}`);
         let keyPosition = deobfuscated.indexOf(key);
         while (keyPosition !== -1) {
-            // console.log(`Found the key '${key}' at position ${keyPosition}`);
+            console.log(`Found the key '${key}' at position ${keyPosition}`);
             deobfuscated = deobfuscated.replace(key, map[key]);
             // console.log(`Current state of URL: ${deobfuscated}`);
             keyPosition = deobfuscated.indexOf(key); // Update key position for the next iteration
@@ -178,6 +201,8 @@ async function transformUrlViaGPT(obfuscatedUrl, obfuscatedExistingMappings) {
         // HTTP request to backend server
         console.log("Sending request to backend /openai endpoint");
         const response = await axios.post('http://localhost:3000/openai', { messages });
+
+        console.log("GPT response message:", response.data.choices[0].message.content.trim());
 
         // Check response structure
         if (response.data && response.data.choices && response.data.choices.length > 0) {
